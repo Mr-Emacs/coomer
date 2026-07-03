@@ -1,4 +1,4 @@
-# CBOOMER
+# COOMER
 
 > **Warning**
 > This is meant for my use case hence why it might have some more stuff.
@@ -28,7 +28,7 @@ The build process is relatively simple you just run make.
 make
 ```
 
-To install the `boomer` lechucola. Run make install as sudo. Or set a prefix path.
+To install the `coomer` lechucola. Run make install as sudo. Or set a prefix path.
 
 - Global Install
 ```sh
