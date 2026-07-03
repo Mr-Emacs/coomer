@@ -1,19 +1,37 @@
+CC       ?= cc
+
+DIR      = $(shell pwd)
 GLEW_DIR = vendor/glew-2.3.1/
+SRC      = src
 
 INCLUDES = -I$(GLEW_DIR)/include/
-CFLAGS   = -std=c11 -Wswitch-enum -Wall -Wextra -Wpedantic -DBM_DEBUG_LOG -DBM_DEBUG_STDOUT_LOG -g
+CFLAGS   = -std=c11 -Wswitch-enum -Wall -Wextra -Wpedantic \
+	   -DBM_DEBUG_LOG -DBM_DEBUG_STDOUT_LOG -g
 LDFLAGS  = -lX11 -lGL -lGLX -lm
 
+PREFIX   ?= /usr/local
+BINDIR   =  $(PREFIX)/bin
+
+TARGET := boomer
+
 .PHONY = all
-all: boomer 
+all: boomer
 
 glew.o: $(GLEW_DIR)
-	make clean -C $(GLEW_DIR) 
+	echo $(PWD)
+	make clean -C $(GLEW_DIR)
 	make debug -C $(GLEW_DIR) 
-	cp -v $(GLEW_DIR)/tmp/linux/default/static/glew.o .
+	cp -v $(GLEW_DIR)/tmp/linux/default/static/glew.o $(SRC)
 
-boomer: main.c glew.o
-	$(CC) $(INCLUDES) $(CFLAGS) -o boomer main.c glew.o $(LDFLAGS)
+$(TARGET): $(SRC)/main.c glew.o
+	$(CC) $(INCLUDES) $(CFLAGS) -o $@ $(SRC)/main.c $(SRC)/glew.o $(LDFLAGS)
 
+install: $(TARGET)
+	install -d "$(DESTDIR)$(BINDIR)"
+	install -m 755 $(TARGET) "$(DESTDIR)$(BINDIR)/$(TARGET)"
+
+uninstall:
+	$(RM) "$(DESTDIR)$(BINDIR)/$(TARGET)"
 clean:
-	$(RM) -rv *.o boomer
+	$(RM) -f *.o $(TARGET)
+	$(MAKE) -C $(GLEW_DIR) clean

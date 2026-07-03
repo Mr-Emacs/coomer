@@ -15,6 +15,8 @@
 #include <GL/gl.h>
 #include <GL/glx.h>
 
+#include "bm_shaders.h"
+
 #define BM_UNUSED(x) (void)x
 _Noreturn void bm_todo(const char *msg, ...);
 #define BM_ASSERT(expr)                                    \
@@ -486,6 +488,7 @@ static void bm_usage(void)
             "Usage: boomer [OPTIONS]\n"
             "  -d <seconds>  delay startup by <seconds>\n"
             "  -w            windowed mode instead of fullscreen\n"
+            "  -s <dir>      load vert.glsl/frag.glsl from <dir> instead of embedded shaders\n"
             "  -h            show this help and exit\n");
     exit(1);
 }
@@ -494,6 +497,7 @@ int main(int argc, char **argv)
 {
     boomer_t b = {0};
     double delay_sec = 0.0;
+    const char *shader_dir = NULL;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -505,6 +509,11 @@ int main(int argc, char **argv)
         {
             if (i + 1 >= argc) bm_usage();
             delay_sec = atof(argv[++i]);
+        }
+        else if (strcmp(argv[i], "-s") == 0)
+        {
+            if (i + 1 >= argc) bm_usage();
+            shader_dir = argv[++i];
         }
         else
         {
@@ -526,13 +535,25 @@ int main(int argc, char **argv)
     XImage *boomer_captured = bm_capture_screenshot(&b);
     BM_ERROR_CHECK(bm_initialize_glx(&b));
 
-    const char *vert_shader_path = "vert.glsl";
-    const char *frag_shader_path = "frag.glsl";
-
     bm_string_builder_t vert_sb = {0};
     bm_string_builder_t frag_sb = {0};
-    bm_read_shader(&vert_sb, vert_shader_path);
-    bm_read_shader(&frag_sb, frag_shader_path);
+    if (shader_dir)
+    {
+        bm_string_builder_t path_sb = {0};
+        bm_append_to_builder_s(&path_sb, shader_dir, strlen(shader_dir));
+        bm_append_to_builder_s(&path_sb, "/vert.glsl", strlen("/vert.glsl"));
+        bm_read_shader(&vert_sb, path_sb.items);
+        path_sb.count = 0;
+        bm_append_to_builder_s(&path_sb, shader_dir, strlen(shader_dir));
+        bm_append_to_builder_s(&path_sb, "/frag.glsl", strlen("/frag.glsl"));
+        bm_read_shader(&frag_sb, path_sb.items);
+        free(path_sb.items);
+    }
+    else
+    {
+        bm_append_to_builder_s(&vert_sb, BM_VERT_SHADER_SRC, strlen(BM_VERT_SHADER_SRC));
+        bm_append_to_builder_s(&frag_sb, BM_FRAG_SHADER_SRC, strlen(BM_FRAG_SHADER_SRC));
+    }
 
     GLuint prog = bm_make_program(&vert_sb, &frag_sb);
     BM_ASSERT(prog != 0);
