@@ -12,8 +12,8 @@ glew.o: $(GLEW_DIR)
 	make debug -C $(GLEW_DIR) 
 	cp -v $(GLEW_DIR)/tmp/linux/default/static/glew.o .
 
-boomer: boomer.c glew.o
-	$(CC) $(INCLUDES) $(CFLAGS) -o boomer boomer.c glew.o $(LDFLAGS)
+boomer: main.c glew.o
+	$(CC) $(INCLUDES) $(CFLAGS) -o boomer main.c glew.o $(LDFLAGS)
 
 clean:
 	$(RM) -rv *.o boomer
