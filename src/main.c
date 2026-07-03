@@ -586,6 +586,19 @@ int main(int argc, char **argv)
     bool quit = false;
     bool mirror = false;
 
+    {
+        Window root_ret, child_ret;
+        int root_x, root_y, win_x, win_y;
+        unsigned int mask_ret;
+        if (XQueryPointer(b.dpy, b.app, &root_ret, &child_ret,
+                          &root_x, &root_y, &win_x, &win_y, &mask_ret))
+        {
+            mouse.curr.x = (float)win_x;
+            mouse.curr.y = (float)win_y;
+            mouse.prev = mouse.curr;
+        }
+    }
+
     // Remember where focus was so quitting hands it back (boomer.nim TODO #78 style).
     Window origin_focus = None;
     int revert_to = 0;
