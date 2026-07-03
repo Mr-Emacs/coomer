@@ -4,6 +4,8 @@
 > This is meant for my use case hence why it might have some more stuff.
 > This is a very basic install and a basic system. 
 
+<img src="coomer.gif" width="300" alt="Alt text" />
+
 This is tsoding boomer ported to C as nim is just mid of a language.
 
 And it does not even build due to package manager of language issues as always
