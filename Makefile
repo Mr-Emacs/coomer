@@ -1,6 +1,5 @@
 CC       ?= cc
 
-DIR      = $(shell pwd)
 GLEW_DIR = vendor/glew-2.3.1/
 SRC      = src
 
@@ -18,7 +17,6 @@ TARGET := boomer
 all: boomer
 
 glew.o: $(GLEW_DIR)
-	echo $(PWD)
 	make clean -C $(GLEW_DIR)
 	make debug -C $(GLEW_DIR) 
 	cp -v $(GLEW_DIR)/tmp/linux/default/static/glew.o $(SRC)
