@@ -1,0 +1,8 @@
+Notes:
+
+Write my own small wrapper for glew instead of using it as a depenendency.
+This is a rough implementation have a platform layer to do switches between C and C++ files.
+
+* additionally I want to be able to do the following
+  - Mirroring
+  - Take screenshot
