@@ -4,6 +4,9 @@
 > This is meant for my use case hence why it might have some more stuff.
 > This is a very basic install and a basic system. 
 
+Support and Original Author: [Tsoding Boomer](https://github.com/tsoding/boomer).
+This project is just a rewrite.
+
 <img src="coomer.gif" width="300" alt="Alt text" />
 
 This is tsoding boomer ported to C as nim is just mid of a language.
