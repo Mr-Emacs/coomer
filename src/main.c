@@ -11,9 +11,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
-#include "GL/glew.h"
-#include <GL/gl.h>
-#include <GL/glx.h>
+#include "bm_gl.h"
 
 #include "bm_shaders.h"
 
@@ -65,7 +63,7 @@ typedef enum
     BM_ROOT_WIN_ERR,
     BM_APP_WIN_ERR,
     BM_GLX_VISUAL_ERR,
-    BM_GLEW_ERR,
+    BM_GL_LOAD_ERR,
 } bm_error_t;
 
 typedef struct
@@ -131,8 +129,6 @@ typedef struct
     size_t count;
     size_t capacity;
 } bm_string_builder_t;
-
-_Thread_local static GLenum glew_err = GLEW_NO_ERROR;
 
 void bm_get_error(bm_error_t err);
 
@@ -329,10 +325,8 @@ static bm_error_t bm_initialize_glx(boomer_t *b)
     XFree(visual_info);
 
     glXMakeCurrent(b->dpy, b->app, b->context);
-    glewExperimental = True;
 
-    glew_err = glewInit();
-    if (glew_err != GLEW_OK) return BM_GLEW_ERR;
+    if (!bm_gl_load()) return BM_GL_LOAD_ERR;
 
     glViewport(0, 0, b->width, b->height);
     return BM_SUCCESS;
@@ -476,7 +470,7 @@ void bm_get_error(bm_error_t err)
         case BM_ROOT_WIN_ERR: BM_LOG_RETURN("Could not initalize X11 root window");
         case BM_APP_WIN_ERR: BM_LOG_RETURN("Could not initalize X11 application window");
         case BM_GLX_VISUAL_ERR: BM_LOG_RETURN("Could not initalize GLX ChooseVisual failed");
-        case BM_GLEW_ERR: BM_LOG_RETURN((const char *)glewGetErrorString(glew_err));
+        case BM_GL_LOAD_ERR: BM_LOG_RETURN("Could not load required OpenGL functions");
     }
 
     #undef BM_LOG_RETURN
