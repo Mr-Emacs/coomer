@@ -13,8 +13,7 @@ For more information please look into tsoding boomer.
 
 ## Dependency
 
-You are required to have gcc, opengl-devel and glx-devel. Since I shipped glu as a vendor
-dependency. I will in the future remove it.
+You are required to have gcc, opengl-devel and glx-devel.
 To install on debian.
 
 ```sh
