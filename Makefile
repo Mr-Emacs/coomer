@@ -1,6 +1,3 @@
-CC       ?= cc
-
-GLEW_DIR = vendor/glew-2.3.1/
 SRC      = src
 
 INCLUDES = -I$(SRC)/
@@ -16,8 +13,8 @@ TARGET := coomer
 .PHONY = all
 all: $(TARGET)
 
-$(TARGET): $(SRC)/main.c $(SRC)/bm_shaders.h
-	$(CC) $(INCLUDES) $(CFLAGS) -o $@ $(SRC)/main.c $(LDFLAGS)
+$(TARGET): $(SRC)/cm_main.c $(SRC)/cm_shaders.h
+	$(CC) $(INCLUDES) $(CFLAGS) -o $@ $(SRC)/cm_main.c $(LDFLAGS)
 
 install: $(TARGET)
 	install -d "$(DESTDIR)$(BINDIR)"

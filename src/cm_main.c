@@ -11,23 +11,27 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
-#include "bm_gl.h"
+#include <X11/cursorfont.h>
 
-#include "bm_shaders.h"
+#include "cm_gl.h"
+#include "cm_shaders.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 #define BM_UNUSED(x) (void)x
 _Noreturn void bm_todo(const char *msg, ...);
-#define BM_ASSERT(expr)                                    \
-    do {                                                   \
-        if(!(expr))                                        \
-        {                                                  \
-            fprintf(stderr,                                \
-                    "Assertion failed: %s\n"               \
-                    "  File: %s\n"                         \
-                    "  Line: %d\n",                        \
-                    #expr, __FILE__, __LINE__);            \
-            abort();                                       \
-        }                                                  \
+#define BM_ASSERT(expr)                         \
+    do {                                        \
+        if(!(expr))                             \
+        {                                       \
+            fprintf(stderr,                     \
+                    "Assertion failed: %s\n"    \
+                    "  File: %s\n"              \
+                    "  Line: %d\n",             \
+                    #expr, __FILE__, __LINE__); \
+            abort();                            \
+        }                                       \
     } while(0)
 
 #ifdef BM_DEBUG_LOG
@@ -35,14 +39,14 @@ extern void bm_log(const char *file_path, const char *msg, ...);
 #define BOOMER_LOG_STDOUT(msg, ...) bm_log(NULL, msg, __VA_ARGS__)
 #endif
 
-#define BM_ERROR_CHECK(expr)      \
-    do {                          \
-        bm_error_t e = (expr);    \
-        if ((e) != BM_SUCCESS)    \
-        {                         \
-            bm_get_error(e);      \
-            return 1;             \
-        }                         \
+#define BM_ERROR_CHECK(expr)                    \
+    do {                                        \
+        bm_error_t e = (expr);                  \
+        if ((e) != BM_SUCCESS)                  \
+        {                                       \
+            bm_get_error(e);                    \
+            return 1;                           \
+        }                                       \
     } while(0)
 
 #define BM_MIN_SCALE                 0.01f
@@ -101,6 +105,8 @@ typedef struct
     float shadow;
     float radius;
     float delta_radius;
+    bool locked;
+    bm_vec2f_t locked_pos;
 } bm_flashlight_t;
 
 typedef struct
@@ -130,6 +136,16 @@ typedef struct
     size_t capacity;
 } bm_string_builder_t;
 
+typedef struct
+{
+    bool armed;
+    bool dragging;
+    bm_vec2f_t start;
+    bm_vec2f_t end;
+    bool fl_locked_saved;
+    bool fl_locked_before;
+} bm_select_t;
+
 void bm_get_error(bm_error_t err);
 
 static float bm_vec2f_length(bm_vec2f_t v)
@@ -137,7 +153,6 @@ static float bm_vec2f_length(bm_vec2f_t v)
     return sqrtf(v.x * v.x + v.y * v.y);
 }
 
-// NOTE: No need to check for null in the calle function.
 static XImage *bm_capture_screenshot(boomer_t *b)
 {
     XSync(b->dpy, False);
@@ -292,8 +307,8 @@ static bm_error_t bm_initialize_glx(boomer_t *b)
     attributes.colormap = color_map;
 
     attributes.event_mask = KeyPressMask
-                            | ButtonPressMask | ButtonReleaseMask
-                            | PointerMotionMask | ExposureMask;
+        | ButtonPressMask | ButtonReleaseMask
+        | PointerMotionMask | ExposureMask;
 
     unsigned long valuemask = CWColormap | CWEventMask;
     if (!b->windowed)
@@ -430,6 +445,29 @@ static bool bm_is_animating(const bm_camera_t *cam, const bm_flashlight_t *fl, c
     return false;
 }
 
+static void bm_select_arm(bm_select_t *sel, bm_flashlight_t *fl, bm_vec2f_t cursor)
+{
+    sel->armed = true;
+    if (fl->enabled)
+    {
+        sel->fl_locked_before = fl->locked;
+        sel->fl_locked_saved = true;
+        fl->locked = true;
+        fl->locked_pos = cursor;
+    } else sel->fl_locked_saved = false;
+}
+
+static void bm_select_disarm(bm_select_t *sel, bm_flashlight_t *fl)
+{
+    sel->armed = false;
+    sel->dragging = false;
+    if (sel->fl_locked_saved)
+    {
+        fl->locked = sel->fl_locked_before;
+        sel->fl_locked_saved = false;
+    }
+}
+
 static void bm_scroll(bm_camera_t *cam, bm_flashlight_t *fl, const bm_mouse_t *mouse,
                       unsigned int state, float dir)
 {
@@ -449,7 +487,7 @@ static float bm_dt(struct timespec *prev)
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     float dt = (float)(now.tv_sec - prev->tv_sec)
-             + (float)(now.tv_nsec - prev->tv_nsec) * 1e-9f;
+        + (float)(now.tv_nsec - prev->tv_nsec) * 1e-9f;
     *prev = now;
     if (dt > 1.0f / 30.0f) dt = 1.0f / 30.0f;
     return dt;
@@ -457,26 +495,26 @@ static float bm_dt(struct timespec *prev)
 
 void bm_get_error(bm_error_t err)
 {
-    #define BM_LOG_RETURN(msg)              \
-    {                                       \
-            fprintf(stderr, "%s\n", msg);   \
-            return;                         \
+#define BM_LOG_RETURN(msg)                      \
+    {                                           \
+        fprintf(stderr, "%s\n", msg);           \
+        return;                                 \
     }
 
     switch(err)
     {
-        case BM_SUCCESS: { return; }
-        case BM_DPY_ERR: BM_LOG_RETURN("Could not initalize X11 display");
-        case BM_ROOT_WIN_ERR: BM_LOG_RETURN("Could not initalize X11 root window");
-        case BM_APP_WIN_ERR: BM_LOG_RETURN("Could not initalize X11 application window");
-        case BM_GLX_VISUAL_ERR: BM_LOG_RETURN("Could not initalize GLX ChooseVisual failed");
-        case BM_GL_LOAD_ERR: BM_LOG_RETURN("Could not load required OpenGL functions");
+    case BM_SUCCESS: { return; }
+    case BM_DPY_ERR: BM_LOG_RETURN("Could not initalize X11 display");
+    case BM_ROOT_WIN_ERR: BM_LOG_RETURN("Could not initalize X11 root window");
+    case BM_APP_WIN_ERR: BM_LOG_RETURN("Could not initalize X11 application window");
+    case BM_GLX_VISUAL_ERR: BM_LOG_RETURN("Could not initalize GLX ChooseVisual failed");
+    case BM_GL_LOAD_ERR: BM_LOG_RETURN("Could not load required OpenGL functions");
     }
 
-    #undef BM_LOG_RETURN
+#undef BM_LOG_RETURN
 }
 
-static void bm_usage(void)
+static void bm_usage(int status)
 {
     fprintf(stderr,
             "Usage: boomer [OPTIONS]\n"
@@ -484,7 +522,54 @@ static void bm_usage(void)
             "  -w            windowed mode instead of fullscreen\n"
             "  -s <dir>      load vert.glsl/frag.glsl from <dir> instead of embedded shaders\n"
             "  -h            show this help and exit\n");
-    exit(1);
+    exit(status);
+}
+
+static void bm_save_screenshot(int x, int y, int w, int h)
+{
+    if (w <= 0 || h <= 0) return;
+    size_t row_bytes = (size_t)(w * 3);
+    unsigned char *pixels = malloc(row_bytes * (size_t) h);
+    BM_ASSERT(pixels != NULL);
+
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(x, y, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+
+    unsigned char *flipped = malloc(row_bytes * (size_t) h);
+    BM_ASSERT(flipped != NULL);
+    for (int row = 0; row < h; ++row)
+    {
+        memcpy(flipped + (size_t)(row * row_bytes),
+               pixels + (size_t)(h - 1 - row) * row_bytes,
+               row_bytes);
+    }
+    free(pixels);
+
+    const char *home_path = getenv("HOME");
+    if (!home_path) home_path = ".";
+
+    time_t now = time(NULL);
+    struct tm tm_info;
+    localtime_r(&now, &tm_info);
+
+    char timestamp[32];
+    strftime(timestamp, sizeof(timestamp), "%Y%m%d-%H%M%S", &tm_info);
+
+    const char *prefix = "/boomer-";
+    const char *suffix = ".png";
+    size_t path_len = strlen(home_path) + strlen(prefix) + strlen(suffix) + strlen(timestamp) + 1;
+    char *path = malloc(path_len);
+    BM_ASSERT(path != NULL);
+
+    snprintf(path, path_len, "%s%s%s%s", home_path, prefix, timestamp, suffix);
+    if (!stbi_write_png(path, w, h, 3, flipped, (int)row_bytes))
+    {
+        fprintf(stderr, "Failed to write screenshot to %s\n", path);
+    } else {
+        fprintf(stderr, "Wrote-screenshot to %s\n", path);
+    }
+    free(path);
+    free(flipped);
 }
 
 int main(int argc, char **argv)
@@ -501,17 +586,17 @@ int main(int argc, char **argv)
         }
         else if (strcmp(argv[i], "-d") == 0)
         {
-            if (i + 1 >= argc) bm_usage();
+            if (i + 1 >= argc) bm_usage(1);
             delay_sec = atof(argv[++i]);
         }
         else if (strcmp(argv[i], "-s") == 0)
         {
-            if (i + 1 >= argc) bm_usage();
+            if (i + 1 >= argc) bm_usage(1);
             shader_dir = argv[++i];
         }
         else
         {
-            bm_usage();
+            bm_usage(0);
         }
     }
 
@@ -580,6 +665,15 @@ int main(int argc, char **argv)
     bool quit = false;
     bool mirror = false;
 
+    bm_select_t select = {0};
+    Cursor cross_hair_cursor = XCreateFontCursor(b.dpy, XC_crosshair);
+    bool pending_screenshot = false;
+
+    int shot_x0 = 0;
+    int shot_y0 = 0;
+    int shot_x1 = 0;
+    int shot_y1 = 0;
+
     {
         Window root_ret, child_ret;
         int root_x, root_y, win_x, win_y;
@@ -626,81 +720,133 @@ int main(int argc, char **argv)
             XNextEvent(b.dpy, &e);
             switch (e.type)
             {
-                case Expose: break;
+            case Expose: break;
 
-                case ClientMessage:
-                {
-                    if ((Atom)e.xclient.data.l[0] == b.wm_delete) quit = true;
-                } break;
+            case ClientMessage:
+            {
+                if ((Atom)e.xclient.data.l[0] == b.wm_delete) quit = true;
+            } break;
 
-                case KeyPress:
+            case KeyPress:
+            {
+                KeySym key = XLookupKeysym(&e.xkey, 0);
+                switch (key)
                 {
-                    KeySym key = XLookupKeysym(&e.xkey, 0);
-                    switch (key)
+                case XK_q:
+                case XK_Escape:
+                {
+                    if (select.armed || select.dragging)
                     {
-                        case XK_q:
-                        case XK_Escape: quit = true; break;
-                        case XK_equal: bm_scroll(&camera, &flashlight, &mouse, e.xkey.state,  1.0f); break;
-                        case XK_minus: bm_scroll(&camera, &flashlight, &mouse, e.xkey.state, -1.0f); break;
-                        case XK_0:
-                        {
-                            camera.scale = 1.0f;
-                            camera.delta_scale = 0.0f;
-                            camera.pos = (bm_vec2f_t){0, 0};
-                            camera.velocity = (bm_vec2f_t){0, 0};
-                            mirror = false;
-                        } break;
-                        case XK_f: flashlight.enabled = !flashlight.enabled; break;
-                        case XK_m:
-                        {
-                            camera.pos.x += shot_w / camera.scale
-                                          - 2.0f * (mouse.curr.x / camera.scale + camera.pos.x);
-                            mirror = !mirror;
-                        } break;
-                        default: break;
+                        bm_select_disarm(&select, &flashlight);
+                        XUndefineCursor(b.dpy, b.app);
+                    } else quit = true;
+                } break;
+                case XK_equal: bm_scroll(&camera, &flashlight, &mouse, e.xkey.state,  1.0f); break;
+                case XK_minus: bm_scroll(&camera, &flashlight, &mouse, e.xkey.state, -1.0f); break;
+                case XK_s:
+                {
+                    if (!select.dragging)
+                    {
+                        if (select.armed) bm_select_disarm(&select, &flashlight);
+                        else bm_select_arm(&select, &flashlight, mouse.curr);
+
+                        if (select.armed) XDefineCursor(b.dpy, b.app, cross_hair_cursor);
+                        else XUndefineCursor(b.dpy, b.app);
                     }
                 } break;
-
-                case ButtonPress:
+                case XK_0:
                 {
-                    switch (e.xbutton.button)
+                    camera.scale = 1.0f;
+                    camera.delta_scale = 0.0f;
+                    camera.pos = (bm_vec2f_t){0, 0};
+                    camera.velocity = (bm_vec2f_t){0, 0};
+                    mirror = false;
+                } break;
+                case XK_f: {
+                    flashlight.enabled = !flashlight.enabled;
+                    if (!flashlight.enabled) flashlight.locked = false;
+                } break;
+                case XK_l: {
+                    if (flashlight.enabled)
                     {
-                        case Button1:
-                        {
-                            mouse.prev = mouse.curr;
-                            mouse.drag = true;
-                            camera.velocity = (bm_vec2f_t){0, 0};
-                        } break;
-                        case Button4: bm_scroll(&camera, &flashlight, &mouse, e.xbutton.state,  1.0f); break;
-                        case Button5: bm_scroll(&camera, &flashlight, &mouse, e.xbutton.state, -1.0f); break;
-                        default: break;
+                        flashlight.locked = !flashlight.locked;
+                        if (!flashlight.locked) flashlight.locked_pos = mouse.curr;
                     }
                 } break;
-
-                case ButtonRelease:
+                case XK_m:
                 {
-                    if (e.xbutton.button == Button1) mouse.drag = false;
+                    camera.pos.x += shot_w / camera.scale
+                        - 2.0f * (mouse.curr.x / camera.scale + camera.pos.x);
+                    mirror = !mirror;
                 } break;
-
-                case MotionNotify:
-                {
-                    mouse.curr.x = (float)e.xmotion.x;
-                    mouse.curr.y = (float)e.xmotion.y;
-                    if (mouse.drag)
-                    {
-                        bm_vec2f_t delta = {
-                            (mouse.prev.x - mouse.curr.x) / camera.scale,
-                            (mouse.prev.y - mouse.curr.y) / camera.scale,
-                        };
-                        camera.pos.x += delta.x;
-                        camera.pos.y += delta.y;
-                        camera.velocity.x = delta.x * 60.0f;
-                        camera.velocity.y = delta.y * 60.0f;
-                    }
-                    mouse.prev = mouse.curr;
-                } break;
-
                 default: break;
+                }
+            } break;
+
+            case ButtonPress:
+            {
+                switch (e.xbutton.button)
+                {
+                case Button1:
+                {
+                    if (select.armed)
+                    {
+                        select.dragging = true;
+                        select.start = mouse.curr;
+                        select.end = mouse.curr;
+                    }
+                    else
+                    {
+                        mouse.prev = mouse.curr;
+                        mouse.drag = true;
+                        camera.velocity = (bm_vec2f_t){0, 0};
+                    }
+                } break;
+                case Button4: bm_scroll(&camera, &flashlight, &mouse, e.xbutton.state,  1.0f); break;
+                case Button5: bm_scroll(&camera, &flashlight, &mouse, e.xbutton.state, -1.0f); break;
+                default: break;
+                }
+            } break;
+
+            case ButtonRelease:
+            {
+                if (e.xbutton.button == Button1)
+                {
+                    if (select.dragging || select.armed)
+                    {
+                        shot_x0 = (int)(select.start.x < select.end.x ? select.start.x : select.end.x);
+                        shot_y0 = (int)(select.start.y < select.end.y ? select.start.y : select.end.y);
+                        shot_x1 = (int)(select.start.x > select.end.x ? select.start.x : select.end.x);
+                        shot_y1 = (int)(select.start.y > select.end.y ? select.start.y : select.end.y);
+                        bm_select_disarm(&select, &flashlight);
+                        XUndefineCursor(b.dpy, b.app);
+
+                        if (shot_x1 - shot_x0 > shot_y1 - shot_y0) pending_screenshot = true;
+                    }
+                    else mouse.drag = false;
+                }
+            } break;
+
+            case MotionNotify:
+            {
+                mouse.curr.x = (float)e.xmotion.x;
+                mouse.curr.y = (float)e.xmotion.y;
+                if (select.dragging)  select.end = mouse.curr;
+                else if (mouse.drag)
+                {
+                    bm_vec2f_t delta = {
+                        (mouse.prev.x - mouse.curr.x) / camera.scale,
+                        (mouse.prev.y - mouse.curr.y) / camera.scale,
+                    };
+                    camera.pos.x += delta.x;
+                    camera.pos.y += delta.y;
+                    camera.velocity.x = delta.x * 60.0f;
+                    camera.velocity.y = delta.y * 60.0f;
+                }
+                mouse.prev = mouse.curr;
+            } break;
+
+            default: break;
             }
         }
 
@@ -708,17 +854,53 @@ int main(int argc, char **argv)
         bm_camera_update(&camera, dt, &mouse, window_size);
         bm_flashlight_update(&flashlight, dt);
 
+        bm_vec2f_t pos = (flashlight.enabled && flashlight.locked) ?
+            flashlight.locked_pos : mouse.curr;
+
         glClear(GL_COLOR_BUFFER_BIT);
         glUniform2f(u.camera_pos, camera.pos.x, camera.pos.y);
         glUniform1f(u.camera_scale, camera.scale);
         glUniform2f(u.window_size, window_size.x, window_size.y);
         glUniform2f(u.screenshot_size, shot_w, shot_h);
-        glUniform2f(u.cursor_pos, mouse.curr.x, mouse.curr.y);
+        glUniform2f(u.cursor_pos, pos.x, pos.y);
         glUniform1f(u.fl_shadow, flashlight.shadow);
         glUniform1f(u.fl_radius, flashlight.radius);
         glUniform1i(u.mirror, mirror);
         glUniform1i(u.tex, 0);
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+        if (select.dragging)
+        {
+            glMatrixMode(GL_PROJECTION);
+            glPushMatrix();
+            glLoadIdentity();
+            glOrtho(0, wa.width, wa.height, 0, -1, 1);
+            glMatrixMode(GL_MODELVIEW);
+            glPushMatrix();
+            glLoadIdentity();
+
+            glUseProgram(0);
+            glColor3f(1.0f, 1.0f, 0.0f);
+            glBegin(GL_LINE_LOOP);
+            {
+                glVertex2f(select.start.x, select.start.y);
+                glVertex2f(select.end.x, select.start.y);
+                glVertex2f(select.end.x, select.end.y);
+                glVertex2f(select.start.x, select.end.y);
+            }
+            glEnd();
+            glMatrixMode(GL_PROJECTION);
+            glPopMatrix();
+            glMatrixMode(GL_MODELVIEW);
+            glPopMatrix();
+            glUseProgram(prog);
+        }
+
+        if (pending_screenshot)
+        {
+            int gl_y = wa.height - shot_y1;
+            bm_save_screenshot(shot_x0, gl_y, shot_x1 - shot_x0, shot_y1 - shot_y0);
+            pending_screenshot = false;
+        }
         glXSwapBuffers(b.dpy, b.app);
         glFinish();
     }
@@ -729,6 +911,7 @@ int main(int argc, char **argv)
     XSync(b.dpy, False);
     glXMakeCurrent(b.dpy, None, NULL);
     glXDestroyContext(b.dpy, b.context);
+    XFreeCursor(b.dpy, cross_hair_cursor);
     XDestroyWindow(b.dpy, b.app);
     XCloseDisplay(b.dpy);
     return 0;
