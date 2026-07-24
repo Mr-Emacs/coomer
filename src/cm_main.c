@@ -457,15 +457,25 @@ static void bm_select_arm(bm_select_t *sel, bm_flashlight_t *fl, bm_vec2f_t curs
     } else sel->fl_locked_saved = false;
 }
 
-static void bm_select_disarm(bm_select_t *sel, bm_flashlight_t *fl)
+static void bm_select_clear_ui(bm_select_t *sel)
 {
     sel->armed = false;
     sel->dragging = false;
+}
+
+static void bm_select_store_flashlight(bm_select_t *sel, bm_flashlight_t *fl)
+{
     if (sel->fl_locked_saved)
     {
         fl->locked = sel->fl_locked_before;
         sel->fl_locked_saved = false;
     }
+}
+
+static void bm_select_disarm(bm_select_t *sel, bm_flashlight_t *fl)
+{
+    bm_select_clear_ui(sel);
+    bm_select_store_flashlight(sel, fl);
 }
 
 static void bm_scroll(bm_camera_t *cam, bm_flashlight_t *fl, const bm_mouse_t *mouse,
@@ -770,7 +780,7 @@ int main(int argc, char **argv)
                     if (flashlight.enabled)
                     {
                         flashlight.locked = !flashlight.locked;
-                        if (!flashlight.locked) flashlight.locked_pos = mouse.curr;
+                        if (flashlight.locked) flashlight.locked_pos = mouse.curr;
                     }
                 } break;
                 case XK_m:
@@ -818,10 +828,12 @@ int main(int argc, char **argv)
                         shot_y0 = (int)(select.start.y < select.end.y ? select.start.y : select.end.y);
                         shot_x1 = (int)(select.start.x > select.end.x ? select.start.x : select.end.x);
                         shot_y1 = (int)(select.start.y > select.end.y ? select.start.y : select.end.y);
-                        bm_select_disarm(&select, &flashlight);
+
+                        bm_select_clear_ui(&select);
                         XUndefineCursor(b.dpy, b.app);
 
                         if (shot_x1 - shot_x0 > shot_y1 - shot_y0) pending_screenshot = true;
+                        else bm_select_store_flashlight(&select, &flashlight);
                     }
                     else mouse.drag = false;
                 }
@@ -900,6 +912,7 @@ int main(int argc, char **argv)
             int gl_y = wa.height - shot_y1;
             bm_save_screenshot(shot_x0, gl_y, shot_x1 - shot_x0, shot_y1 - shot_y0);
             pending_screenshot = false;
+            bm_select_store_flashlight(&select, &flashlight);
         }
         glXSwapBuffers(b.dpy, b.app);
         glFinish();
