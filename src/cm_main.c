@@ -697,7 +697,7 @@ int main(int argc, char **argv)
         }
     }
 
-    // Remember where focus was so quitting hands it back (boomer.nim TODO #78 style).
+    // Remember where focus was so quitting hands it back (boomer.nim TODO #78 style).r
     Window origin_focus = None;
     int revert_to = 0;
     XGetInputFocus(b.dpy, &origin_focus, &revert_to);
