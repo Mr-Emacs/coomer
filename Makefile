@@ -11,7 +11,14 @@ MANPATH  := /usr/share/man/man1
 
 TARGET := coomer
 
-.PHONY = all
+# when using make a directive must be put in `.PHONY` if its not a file output
+# PM PHONY's
+.PHONY = all  clean  
+# INSTALL PHONY's
+.PHONY = install install-doc
+# UNINSTALL PHONY's
+.PHONY = uninstall-doc uninstall
+
 all: $(TARGET)
 
 MAN := coomer.1
@@ -25,11 +32,15 @@ install: $(TARGET) install-doc
 ifdef SUDO_USER
 	chown -R $(SUDO_USER):$(SUDO_USER) .
 endif
+
 install-doc: $(MAN)
 	install -d "$(MANPATH)"
 	install -m 755 $(MAN) "$(MANPATH)/$(MAN)"
 
-uninstall:
+uninstall: uninstall-doc
 	$(RM) "$(DESTDIR)$(BINDIR)/$(TARGET)"
+
+uninstall-doc:
+	$(RM) "$(MANPATH)/$(MAN)"
 clean:
 	$(RM) -f $(TARGET)
