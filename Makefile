@@ -21,7 +21,11 @@ TARGET := coomer
 
 all: $(TARGET)
 
-MAN := coomer.1
+# this was not the proper one it was 
+#MAN := coomer.1
+# when it needs to be 
+MAN := coomer.1.gz
+
 
 $(TARGET): $(SRC)/cm_main.c $(SRC)/cm_shaders.h
 	$(CC) $(INCLUDES) $(CFLAGS) -o $@ $(SRC)/cm_main.c $(LDFLAGS)
